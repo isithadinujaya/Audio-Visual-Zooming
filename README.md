@@ -80,3 +80,82 @@ The deep audio zooming system takes multi-channel audio (8 microphones) and a us
 ---
 
 ## Neural Network Architecture Diagram
+
+
+---
+
+## Layer-by-Layer Description
+
+### Layer 1: GRU-1 (Temporal Processing)
+
+| Property | Value |
+|----------|-------|
+| **Type** | Unidirectional Gated Recurrent Unit (GRU) |
+| **Input** | 3-dim features [LPS, D_in, D_out] over time |
+| **Input shape** | (batch * freq, time, 3) |
+| **Hidden size** | 128 |
+| **Output** | Hidden state h₁(t,f) |
+| **Output shape** | (batch, freq, time, 128) |
+| **Processing** | Each frequency band processed independently |
+| **Purpose** | Captures temporal speech dynamics (phoneme durations, speech patterns) |
+
+**Why GRU?**
+- Fewer parameters than LSTM (no output gate)
+- Faster computation
+- Comparable performance for speech tasks
+- Suitable for real-time applications
+
+---
+
+### Layer 2: Mask Estimation
+
+| Property | Value |
+|----------|-------|
+| **Type** | Two independent linear layers |
+| **Input** | GRU-1 hidden state (128-dim) |
+| **Input shape** | (batch * freq * time, 128) |
+| **Output** | Complex masks M_in(t,f) and M_out(t,f) |
+| **Output shape** | (batch, freq, time) complex each |
+| **Output representation** | Real and imaginary parts (2 values per mask) |
+
+**Mask Functions:**
+- **M_in:** Enhances time-frequency bins dominated by sources inside the FOV
+- **M_out:** Represents interference from sources outside the FOV
+
+**Why complex masks?**
+- Phase information is crucial for beamforming
+- Complex masks can modify both magnitude and phase
+- Enables more precise separation than real-valued masks
+
+---
+
+### Layer 3: Apply Masks to All Microphones
+
+| Property | Value |
+|----------|-------|
+| **Operation** | S_in,c = M_in × Y_c (for each microphone c) |
+| **Operation** | S_out,c = M_out × Y_c (for each microphone c) |
+| **Input masks** | M_in, M_out: (batch, freq, time) complex |
+| **Input microphones** | Y_c: (batch, 8, freq, time) complex |
+| **Output** | S_in_all, S_out_all: (batch, 8, freq, time) complex each |
+| **Purpose** | Generate initial estimates of target and interference signals |
+
+**Why apply to all microphones?**
+- Preserves full spatial information
+- Allows network to learn how masks affect each channel
+- Essential for subsequent beamforming
+
+---
+
+### Layer 4: Subband Embedding
+
+| Property | Value |
+|----------|-------|
+| **Input** | S_in_all and S_out_all (complex, all microphones) |
+| **Operation** | Extract real and imaginary parts |
+| **Components** | • S_in from 8 mics: 8 × 2 = 16 values<br>• S_out from 8 mics: 8 × 2 = 16 values |
+| **Concatenation** | Join all 32 values |
+| **Output shape** | (batch, freq, time, 32) |
+| **Purpose** | Create rich representation for refinement stage |
+
+**Embedding contents per T-F bin:**
